@@ -56,29 +56,20 @@ def solve_nonnegative_least_squares(target, products):
     return steps
 
 
-def optimize(target, products):
+def optimize(target, products, alpha_percent):
+    """Optimize product weights for a fixed alpha (percentage of residual)."""
     K = len(target)
     r = target[:]
     s = [p['step'] for p in products]
     max_weight = [p['max_weight'] for p in products]
     p_matrix = [p['nutrients'] for p in products]
     x = [0.0] * len(products)
+    alpha = alpha_percent / 100.0
 
     while True:
-        alpha_list = []
-        for k in range(K):
-            if r[k] > 0:
-                ratios = []
-                for j in range(len(products)):
-                    val = (s[j] / 100.0) * p_matrix[j][k]
-                    if val > 0:
-                        ratios.append(val / r[k])
-                if ratios:
-                    alpha_list.append(min(ratios))
-        if not alpha_list:
+        target_vec = [alpha * rk if rk > 0 else 0.0 for rk in r]
+        if all(val <= 0 for val in target_vec):
             break
-        alpha = max(alpha_list)
-        target_vec = [alpha * rk for rk in r]
         delta_steps = solve_nonnegative_least_squares(target_vec, products)
 
         any_added = False
@@ -118,13 +109,33 @@ def main():
             except ValueError:
                 print('Введите числовое значение')
         target.append(val)
+    while True:
+        try:
+            start_alpha = int(input('Начальное значение альфа (1-100): '))
+            if 1 <= start_alpha <= 100:
+                break
+            print('Введите число от 1 до 100')
+        except ValueError:
+            print('Введите целое число')
 
-    weights, residual, rmse = optimize(target, products)
-    print('Подобранные веса:')
-    for prod, w in zip(products, weights):
+    best = None
+    for alpha in range(start_alpha, 101):
+        weights, residual, rmse = optimize(target, products, alpha)
+        if best is None or rmse < best['rmse']:
+            best = {'alpha': alpha, 'weights': weights, 'residual': residual, 'rmse': rmse}
+
+    achieved = [t - r for t, r in zip(target, best['residual'])]
+    print('Сравнение нутриентов:')
+    print(f"{'Нутриент':<20}{'Цель':>10}{'Рацион':>10}")
+    for key, tgt, act in zip(NUTRIENT_KEYS, target, achieved):
+        label = key.replace('\n', ' ')
+        print(f"{label:<20}{tgt:>10.1f}{act:>10.1f}")
+
+    print(f"\nМинимальная RMSE: {best['rmse']:.4f} при Альфа={best['alpha']}")
+    print('Продукты и граммовки:')
+    for prod, w in zip(products, best['weights']):
         if w > 0:
             print(f"- {prod['name']}: {w:.1f} г")
-    print('RMSE:', round(rmse, 4))
 
 
 if __name__ == '__main__':
