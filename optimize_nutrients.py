@@ -133,11 +133,27 @@ def main():
         except ValueError:
             print('Введите целое число')
 
+    while True:
+        try:
+            runs_per_alpha = int(input('Количество прогонов для каждого альфа (0-100): '))
+            if 0 <= runs_per_alpha <= 100:
+                break
+            print('Введите число от 0 до 100')
+        except ValueError:
+            print('Введите целое число')
+
     best = None
+    repeats = max(1, runs_per_alpha)
     for alpha in range(start_alpha, 101):
-        weights, residual, rmse = optimize(target, products, alpha)
-        if best is None or rmse < best['rmse']:
-            best = {'alpha': alpha, 'weights': weights, 'residual': residual, 'rmse': rmse}
+        for _ in range(repeats):
+            weights, residual, rmse = optimize(target, products, alpha)
+            if best is None or rmse < best['rmse']:
+                best = {
+                    'alpha': alpha,
+                    'weights': weights,
+                    'residual': residual,
+                    'rmse': rmse,
+                }
 
     achieved = [t - r for t, r in zip(target, best['residual'])]
     print('Сравнение нутриентов:')
