@@ -56,6 +56,15 @@ def solve_nonnegative_least_squares(target, products):
     return steps
 
 
+def calculate_calories(values):
+    """Compute calories from macronutrient values."""
+    proteins = values['Белки']
+    fats = values['Насыщенные'] + values['НЕнасыщенные']
+    carbs = values['Простые'] + values[COMPLEX_KEY]
+    fiber = values['Растворимая'] + values['Нерастворимая']
+    return proteins * 4 + fats * 9 + carbs * 4 + fiber * 1.5
+
+
 def optimize(target, products, alpha_percent):
     """Optimize product weights for a fixed alpha (percentage of residual)."""
     K = len(target)
@@ -98,9 +107,10 @@ def optimize(target, products, alpha_percent):
 
 def main():
     products = load_products('Nutrients DB.csv')
-    print('Введите целевые значения для нутриентов (в граммах или ккал):')
+    print('Введите целевые значения для нутриентов (в граммах):')
     target = []
-    for key in NUTRIENT_KEYS:
+    values = {}
+    for key in NUTRIENT_KEYS[:-1]:
         label = key.replace('\n', ' ')
         while True:
             try:
@@ -109,6 +119,11 @@ def main():
             except ValueError:
                 print('Введите числовое значение')
         target.append(val)
+        values[key] = val
+
+    calories = calculate_calories(values)
+    target.append(calories)
+
     while True:
         try:
             start_alpha = int(input('Начальное значение альфа (1-100): '))
