@@ -1,4 +1,5 @@
 import csv
+import random
 import numpy as np
 from scipy.optimize import nnls
 
@@ -145,14 +146,21 @@ def main():
 
     best = None
     repeats = max(1, runs_per_alpha)
+    n_products = len(products)
     for alpha in range(start_alpha, 101):
         for run in range(1, repeats + 1):
-            weights, residual, rmse = optimize(target, products, alpha)
+            indices = list(range(n_products))
+            random.shuffle(indices)
+            shuffled = [products[i] for i in indices]
+            weights, residual, rmse = optimize(target, shuffled, alpha)
+            ordered_weights = [0.0] * n_products
+            for idx, w in zip(indices, weights):
+                ordered_weights[idx] = w
             if best is None or rmse < best['rmse']:
                 best = {
                     'alpha': alpha,
                     'run': run,
-                    'weights': weights,
+                    'weights': ordered_weights,
                     'residual': residual,
                     'rmse': rmse,
                 }
