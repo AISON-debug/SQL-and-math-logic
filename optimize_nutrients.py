@@ -84,15 +84,16 @@ def optimize(target, products, alpha_percent):
         any_added = False
         for j in range(len(products)):
             available_steps = (max_weight[j] - x[j]) / s[j]
-            if available_steps < 1:
+            if available_steps <= 0:
                 continue
             d = min(delta_steps[j], available_steps)
-            if d < 1:
-                d = 1
-            else:
-                d = int(round(d))
+            d = int(round(d))
             if d <= 0:
                 continue
+            if d > available_steps:
+                d = int(available_steps)
+                if d <= 0:
+                    continue
             add_weight = d * s[j]
             x[j] += add_weight
             any_added = True
@@ -145,11 +146,12 @@ def main():
     best = None
     repeats = max(1, runs_per_alpha)
     for alpha in range(start_alpha, 101):
-        for _ in range(repeats):
+        for run in range(1, repeats + 1):
             weights, residual, rmse = optimize(target, products, alpha)
             if best is None or rmse < best['rmse']:
                 best = {
                     'alpha': alpha,
+                    'run': run,
                     'weights': weights,
                     'residual': residual,
                     'rmse': rmse,
@@ -162,7 +164,9 @@ def main():
         label = key.replace('\n', ' ')
         print(f"{label:<20}{tgt:>10.1f}{act:>10.1f}")
 
-    print(f"\nМинимальная RMSE: {best['rmse']:.4f} при Альфа={best['alpha']}")
+    print(
+        f"\nМинимальная RMSE: {best['rmse']:.4f} при Альфа={best['alpha']} (прогон {best['run']})"
+    )
     print('Продукты и граммовки:')
     for prod, w in zip(products, best['weights']):
         if w > 0:
