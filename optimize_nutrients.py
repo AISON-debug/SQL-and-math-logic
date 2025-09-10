@@ -1,15 +1,21 @@
 import csv
 import random
 import math
+import re
 
-# Mapping of CSV column names to internal keys
-COMPLEX_KEY = 'Сложные \nперевариваемые'
+
+def _norm(name: str) -> str:
+    """Normalise CSV header by collapsing whitespace."""
+    return re.sub(r"\s+", " ", name).strip()
+
+
+# Mapping of normalised CSV column names to internal keys
 CSV_TO_KEY = {
     'Белки': 'protein',
     'Насыщенные': 'saturatedFat',
     'НЕнасыщенные': 'unsaturatedFat',
     'Простые': 'simpleCarbs',
-    COMPLEX_KEY: 'complexCarbs',
+    'Сложные перевариваемые': 'complexCarbs',
     'Растворимая': 'solubleFiber',
     'Нерастворимая': 'insolubleFiber',
     'ККал': 'calories',
@@ -54,6 +60,7 @@ def load_products(path: str):
     with open(path, encoding='utf-8') as f:
         reader = csv.DictReader(f)
         for row in reader:
+            row = {_norm(k): v for k, v in row.items()}
             nutrients = {CSV_TO_KEY[k]: float(row[k]) for k in CSV_TO_KEY}
             step = float(row['Шаг'])
             max_weight = float(row['Макс. порций']) * step
