@@ -41,7 +41,6 @@
   <input name="Сложные перевариваемые" placeholder="Сложные перевариваемые" type="number" step="any" required>
   <input name="Растворимая" placeholder="Растворимая" type="number" step="any" required>
   <input name="Нерастворимая" placeholder="Нерастворимая" type="number" step="any" required>
-  <input name="ККал" placeholder="ККал" type="number" step="any" required>
   <input name="Макс. порций" placeholder="Макс. порций" type="number" step="any" required>
   <input name="Шаг" placeholder="Шаг" type="number" step="any" required>
   <button type="submit">Добавить</button>
@@ -49,6 +48,7 @@
 
 <script>
 const fieldNames = ["Продукт","Белки","Насыщенные","НЕнасыщенные","Простые","Сложные перевариваемые","Растворимая","Нерастворимая","ККал","Макс. порций","Шаг"];
+const inputFieldNames = fieldNames.filter(f => f !== "ККал");
 
 async function fetchProducts(){
   const res = await fetch('/api/products');
@@ -85,7 +85,7 @@ async function deleteProduct(name){
 
 async function editProduct(prod){
   const edited = {};
-  for(const fn of fieldNames){
+  for(const fn of inputFieldNames){
     const val = prompt('Введите ' + fn, prod[fn]);
     if(val === null || val === ''){ alert('Все поля обязательны'); return; }
     edited[fn] = val;
@@ -102,7 +102,7 @@ document.getElementById('addForm').addEventListener('submit', async e => {
   e.preventDefault();
   const formData = new FormData(e.target);
   const obj = {};
-  for(const fn of fieldNames){
+  for(const fn of inputFieldNames){
     const val = formData.get(fn);
     if(!val){ alert('Все поля обязательны'); return; }
     obj[fn] = val;

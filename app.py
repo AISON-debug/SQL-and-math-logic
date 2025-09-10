@@ -7,6 +7,9 @@ FIELDNAMES = ['Продукт', 'Белки', 'Насыщенные', 'НЕна�
               'Сложные перевариваемые', 'Растворимая', 'Нерастворимая',
               'ККал', 'Макс. порций', 'Шаг']
 
+# Поля, которые вводит пользователь (ККал вычисляется автоматически)
+INPUT_FIELDS = [f for f in FIELDNAMES if f != 'ККал']
+
 app = Flask(__name__, static_folder='static', static_url_path='')
 
 def _sanitize(row):
@@ -33,26 +36,44 @@ def write_products(products):
 def get_products():
     return jsonify(read_products())
 
+def calculate_kcal(data: dict) -> str:
+    """Вычислить ККал по формуле и вернуть строку с двумя знаками."""
+    def g(name):
+        try:
+            return float(data.get(name, 0) or 0)
+        except ValueError:
+            return 0.0
+
+    kcal = (
+        g('Белки') * 4
+        + (g('Насыщенные') + g('НЕнасыщенные')) * 9
+        + (g('Простые') + g('Сложные перевариваемые')) * 4
+        + (g('Растворимая') + g('Нерастворимая')) * 1.5
+    )
+    return f"{kcal:.2f}"
+
 @app.route('/api/products', methods=['POST'])
 def add_product():
-    data = request.get_json()
-    if not data or any(field not in data or data[field] == '' for field in FIELDNAMES):
+    data = request.get_json() or {}
+    if any(field not in data or data[field] == '' for field in INPUT_FIELDS):
         return jsonify({'error': 'Все поля обязательны'}), 400
     products = read_products()
     if any(p['Продукт'] == data['Продукт'] for p in products):
         return jsonify({'error': 'Продукт уже существует'}), 400
+    data['ККал'] = calculate_kcal(data)
     products.append({field: data[field] for field in FIELDNAMES})
     write_products(products)
     return jsonify({'status': 'created'}), 201
 
 @app.route('/api/products/<string:name>', methods=['PUT'])
 def edit_product(name):
-    data = request.get_json()
-    if not data or any(field not in data or data[field] == '' for field in FIELDNAMES):
+    data = request.get_json() or {}
+    if any(field not in data or data[field] == '' for field in INPUT_FIELDS):
         return jsonify({'error': 'Все поля обязательны'}), 400
     products = read_products()
     for idx, p in enumerate(products):
         if p['Продукт'] == name:
+            data['ККал'] = calculate_kcal(data)
             products[idx] = {field: data[field] for field in FIELDNAMES}
             write_products(products)
             return jsonify({'status': 'updated'})
