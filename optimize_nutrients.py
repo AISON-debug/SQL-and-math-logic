@@ -1,131 +1,230 @@
 import csv
 import random
-import numpy as np
-from scipy.optimize import nnls
+import math
 
-# Key name for complex digestible nutrients containing newline in CSV header
+# Mapping of CSV column names to internal keys
 COMPLEX_KEY = 'Сложные \nперевариваемые'
+CSV_TO_KEY = {
+    'Белки': 'protein',
+    'Насыщенные': 'saturatedFat',
+    'НЕнасыщенные': 'unsaturatedFat',
+    'Простые': 'simpleCarbs',
+    COMPLEX_KEY: 'complexCarbs',
+    'Растворимая': 'solubleFiber',
+    'Нерастворимая': 'insolubleFiber',
+    'ККал': 'calories',
+}
 
-NUTRIENT_KEYS = [
-    'Белки',
-    'Насыщенные',
-    'НЕнасыщенные',
-    'Простые',
-    COMPLEX_KEY,
-    'Растворимая',
-    'Нерастворимая',
-    'ККал',
+# Order of nutrient keys used in optimisation and output
+NUT_KEYS = [
+    'protein',
+    'saturatedFat',
+    'unsaturatedFat',
+    'simpleCarbs',
+    'complexCarbs',
+    'solubleFiber',
+    'insolubleFiber',
+    'calories',
 ]
+
+# Russian labels for output
+KEY_TO_RUS = {v: k for k, v in CSV_TO_KEY.items()}
+
+# Weights for error calculation (from nutrition_webapp 31.08.2025.html)
+WEIGHTS = {
+    'protein': 2,
+    'saturatedFat': 1,
+    'unsaturatedFat': 1,
+    'simpleCarbs': 1,
+    'complexCarbs': 1,
+    'solubleFiber': 1,
+    'insolubleFiber': 1,
+    'calories': 3,
+}
+
+
+def js_round(x: float) -> int:
+    """Round half up as JavaScript's Math.round."""
+    return math.floor(x + 0.5)
 
 
 def load_products(path: str):
-    """Load product information from CSV.
-
-    Returns a list of dicts with nutrient composition per 100g, step size and
-    maximal allowable weight.
-    """
+    """Load products with nutrient composition, step and max weight."""
     products = []
     with open(path, encoding='utf-8') as f:
         reader = csv.DictReader(f)
         for row in reader:
-            nutrients = [float(row[key]) for key in NUTRIENT_KEYS]
+            nutrients = {CSV_TO_KEY[k]: float(row[k]) for k in CSV_TO_KEY}
             step = float(row['Шаг'])
             max_weight = float(row['Макс. порций']) * step
-            products.append(
-                {
-                    'name': row['Продукт'],
-                    'nutrients': nutrients,
-                    'step': step,
-                    'max_weight': max_weight,
-                    'weight': 0.0,
-                }
-            )
+            products.append({
+                'name': row['Продукт'],
+                'nutrients': nutrients,
+                'step': step,
+                'max_weight': max_weight,
+            })
     return products
 
 
-def solve_nonnegative_least_squares(target, products):
-    """Solve NNLS for the given target and products returning step counts."""
-    K = len(target)
-    N = len(products)
-    A = np.zeros((K, N))
-    for j, product in enumerate(products):
-        s = product['step']
-        p = np.array(product['nutrients'])
-        A[:, j] = (s / 100.0) * p  # nutrient contribution of one step
-    b = np.array(target)
-    steps, _ = nnls(A, b)
-    return steps
-
-
-def calculate_calories(values):
-    """Compute calories from macronutrient values."""
-    proteins = values['Белки']
-    fats = values['Насыщенные'] + values['НЕнасыщенные']
-    carbs = values['Простые'] + values[COMPLEX_KEY]
-    fiber = values['Растворимая'] + values['Нерастворимая']
-    return proteins * 4 + fats * 9 + carbs * 4 + fiber * 1.5
-
-
-def optimize(target, products, alpha_percent):
-    """Optimize product weights for a fixed alpha (percentage of residual)."""
-    K = len(target)
-    r = target[:]
-    s = [p['step'] for p in products]
-    max_weight = [p['max_weight'] for p in products]
-    p_matrix = [p['nutrients'] for p in products]
-    x = [0.0] * len(products)
-    alpha = alpha_percent / 100.0
-
-    while True:
-        target_vec = [alpha * rk if rk > 0 else 0.0 for rk in r]
-        if all(val <= 0 for val in target_vec):
+def run_iterative_optimization(products, var_idxs, resid, alpha, max_iter=10):
+    """Replicate runIterativeOptimization from nutrition_webapp."""
+    resid_vec = {k: resid[k] for k in resid}
+    var_add = {idx: 0.0 for idx in var_idxs}
+    step_vals = {idx: products[idx]['step'] for idx in var_idxs}
+    max_vals = {idx: products[idx]['max_weight'] for idx in var_idxs}
+    nut_keys = NUT_KEYS
+    active = var_idxs[:]
+    iteration = 0
+    while active and iteration < max_iter:
+        active = [
+            idx
+            for idx in active
+            if step_vals[idx] > 0 and (max_vals[idx] - var_add[idx]) >= step_vals[idx] / 2
+        ]
+        if not active:
             break
-        delta_steps = solve_nonnegative_least_squares(target_vec, products)
-
-        any_added = False
-        for j in range(len(products)):
-            available_steps = (max_weight[j] - x[j]) / s[j]
-            if available_steps <= 0:
-                continue
-            d = min(delta_steps[j], available_steps)
-            d = int(round(d))
-            if d <= 0:
-                continue
-            if d > available_steps:
-                d = int(available_steps)
-                if d <= 0:
+        m = len(active)
+        pmat = []
+        for idx in active:
+            p = products[idx]['nutrients']
+            pmat.append([p[k] / 100.0 for k in nut_keys])
+        G = [[0.0] * m for _ in range(m)]
+        b = [0.0] * m
+        for i in range(m):
+            sumB = 0.0
+            for k, key in enumerate(nut_keys):
+                w = WEIGHTS[key]
+                target_scaled = resid_vec[key] * alpha
+                sumB += w * target_scaled * pmat[i][k]
+            b[i] = sumB
+            for j in range(m):
+                sumG = 0.0
+                for k2, key2 in enumerate(nut_keys):
+                    w = WEIGHTS[key2]
+                    sumG += w * pmat[i][k2] * pmat[j][k2]
+                G[i][j] = sumG
+        active_idxs = active[:]
+        activeG = [row[:] for row in G]
+        activeB = b[:]
+        sol = []
+        while True:
+            m2 = len(active_idxs)
+            if m2 == 0:
+                break
+            aug = [activeG[i][:] + [activeB[i]] for i in range(m2)]
+            for col in range(m2):
+                pivot = max(range(col, m2), key=lambda r: abs(aug[r][col]))
+                if abs(aug[pivot][col]) < 1e-12:
                     continue
-            add_weight = d * s[j]
-            x[j] += add_weight
-            any_added = True
-            for k in range(K):
-                r[k] -= (p_matrix[j][k] / 100.0) * add_weight
-        if not any_added or all(val <= 0 for val in r):
+                if pivot != col:
+                    aug[col], aug[pivot] = aug[pivot], aug[col]
+                piv = aug[col][col]
+                for j in range(col, m2 + 1):
+                    aug[col][j] /= piv
+                for i2 in range(m2):
+                    if i2 == col:
+                        continue
+                    factor = aug[i2][col]
+                    for j in range(col, m2 + 1):
+                        aug[i2][j] -= factor * aug[col][j]
+            sol_vec = [0.0] * m2
+            for i2 in range(m2 - 1, -1, -1):
+                sol_vec[i2] = aug[i2][m2]
+                for j in range(i2 + 1, m2):
+                    sol_vec[i2] -= aug[i2][j] * sol_vec[j]
+            neg = [i for i, v in enumerate(sol_vec) if v < 0]
+            if not neg:
+                sol = sol_vec
+                break
+            keep = [i for i in range(m2) if i not in neg]
+            active_idxs = [active_idxs[i] for i in keep]
+            activeB = [activeB[i] for i in keep]
+            activeG = [[row[j] for j in keep] for row_idx, row in enumerate(activeG) if row_idx in keep]
+        if not sol:
             break
+        any_positive = False
+        for i, idx in enumerate(active_idxs):
+            grams = sol[i]
+            if grams <= 0:
+                continue
+            remaining = max_vals[idx] - var_add[idx]
+            if remaining <= 0:
+                continue
+            if grams > remaining:
+                grams = remaining
+            step = step_vals[idx]
+            if step > 0:
+                rounded = js_round(grams / step) * step
+                if rounded > remaining:
+                    rounded = math.floor(remaining / step) * step
+                if rounded < 0:
+                    rounded = 0
+                grams = rounded
+            if grams <= 0:
+                continue
+            var_add[idx] += grams
+            any_positive = True
+            p = products[idx]['nutrients']
+            for key in nut_keys:
+                resid_vec[key] -= (p[key] / 100.0) * grams
+        if not any_positive:
+            break
+        iteration += 1
+    return var_add
 
-    rmse = (sum(val * val for val in r) / K) ** 0.5
-    return x, r, rmse
+
+def evaluate_diet(products, var_idxs, targets, alpha):
+    resid = {k: targets[k] for k in NUT_KEYS}
+    var_map = run_iterative_optimization(products, var_idxs, resid, alpha)
+    totals = {k: 0.0 for k in NUT_KEYS}
+    for idx in var_idxs:
+        grams = var_map.get(idx, 0.0)
+        if grams > 0:
+            p = products[idx]['nutrients']
+            factor = grams / 100.0
+            for key in NUT_KEYS:
+                totals[key] += p[key] * factor
+    err_sum = 0.0
+    n_keys = 0
+    for key in NUT_KEYS:
+        diff = targets[key] - totals[key]
+        err_sum += WEIGHTS[key] * diff * diff
+        n_keys += 1
+    rmse = math.sqrt(err_sum / n_keys) if n_keys > 0 else 0.0
+    return var_map, totals, rmse
+
+
+def calculate_calories(targets):
+    return (
+        4 * targets['protein']
+        + 9 * (targets['saturatedFat'] + targets['unsaturatedFat'])
+        + 4 * (targets['simpleCarbs'] + targets['complexCarbs'])
+        + 1.5 * (targets['solubleFiber'] + targets['insolubleFiber'])
+    )
 
 
 def main():
     products = load_products('Nutrients DB.csv')
     print('Введите целевые значения для нутриентов (в граммах):')
-    target = []
-    values = {}
-    for key in NUTRIENT_KEYS[:-1]:
-        label = key.replace('\n', ' ')
+    targets = {}
+    order = [
+        ('protein', 'Белки'),
+        ('saturatedFat', 'Насыщенные'),
+        ('unsaturatedFat', 'НЕнасыщенные'),
+        ('simpleCarbs', 'Простые'),
+        ('complexCarbs', 'Сложные перевариваемые'),
+        ('solubleFiber', 'Растворимая'),
+        ('insolubleFiber', 'Нерастворимая'),
+    ]
+    for key, label in order:
         while True:
             try:
                 val = float(input(f'{label}: '))
                 break
             except ValueError:
                 print('Введите числовое значение')
-        target.append(val)
-        values[key] = val
-
-    calories = calculate_calories(values)
-    target.append(calories)
-
+        targets[key] = val
+    targets['calories'] = calculate_calories(targets)
     while True:
         try:
             start_alpha = int(input('Начальное значение альфа (1-100): '))
@@ -134,52 +233,59 @@ def main():
             print('Введите число от 1 до 100')
         except ValueError:
             print('Введите целое число')
-
     while True:
         try:
-            runs_per_alpha = int(input('Количество прогонов для каждого альфа (0-100): '))
+            runs_per_alpha = int(
+                input('Количество прогонов для каждого альфа (0-100): ')
+            )
             if 0 <= runs_per_alpha <= 100:
                 break
             print('Введите число от 0 до 100')
         except ValueError:
             print('Введите целое число')
-
+    var_indices = list(range(len(products)))
     best = None
     repeats = max(1, runs_per_alpha)
-    n_products = len(products)
     for alpha in range(start_alpha, 101):
         for run in range(1, repeats + 1):
-            indices = list(range(n_products))
-            random.shuffle(indices)
-            shuffled = [products[i] for i in indices]
-            weights, residual, rmse = optimize(target, shuffled, alpha)
-            ordered_weights = [0.0] * n_products
-            for idx, w in zip(indices, weights):
-                ordered_weights[idx] = w
+            shuffled = var_indices[:]
+            random.shuffle(shuffled)
+            var_map, totals, rmse = evaluate_diet(
+                products, shuffled, targets, alpha / 100.0
+            )
+            weights = [0.0] * len(products)
+            for idx, grams in var_map.items():
+                weights[idx] = grams
             if best is None or rmse < best['rmse']:
                 best = {
                     'alpha': alpha,
                     'run': run,
-                    'weights': ordered_weights,
-                    'residual': residual,
+                    'weights': weights,
+                    'totals': totals,
                     'rmse': rmse,
                 }
-
-    achieved = [t - r for t, r in zip(target, best['residual'])]
+    if not best:
+        print('Не удалось найти решение')
+        return
     print('Сравнение нутриентов:')
-    print(f"{'Нутриент':<20}{'Цель':>10}{'Рацион':>10}")
-    for key, tgt, act in zip(NUTRIENT_KEYS, target, achieved):
-        label = key.replace('\n', ' ')
-        print(f"{label:<20}{tgt:>10.1f}{act:>10.1f}")
-
+    print(f"{'Нутриент':<45}{'Цель':>10}{'Рацион':>10}")
+    for key in NUT_KEYS:
+        tgt = targets[key]
+        act = best['totals'][key]
+        label = KEY_TO_RUS[key].replace('\n', ' ')
+        if key == 'calories':
+            print(f"{label:<45}{tgt:>10.1f}{act:>10.1f}")
+        else:
+            print(f"{label:<45}{tgt:>10.0f}{act:>10.0f}")
     print(
-        f"\nМинимальная RMSE: {best['rmse']:.4f} при Альфа={best['alpha']} (прогон {best['run']})"
+        f"\nМинимальная RMSE: {best['rmse']:.3f} при Альфа={best['alpha']} (прогон {best['run']})"
     )
     print('Продукты и граммовки:')
     for prod, w in zip(products, best['weights']):
         if w > 0:
-            print(f"- {prod['name']}: {w:.1f} г")
+            print(f"- {prod['name']}: {w:.2f} г")
 
 
 if __name__ == '__main__':
     main()
+
