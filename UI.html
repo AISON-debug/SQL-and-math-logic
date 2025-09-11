@@ -5,51 +5,107 @@
     <title>Продукты</title>
     <style>
         #db { display: none; margin-top: 10px; }
-        #pool { margin-top: 10px; }
-        label { display: block; }
-        .nutrients { display: none; margin-left: 10px; font-size: 0.9em; }
+        table { border-collapse: collapse; margin-top: 10px; }
+        th, td { border: 1px solid #ccc; padding: 4px; text-align: center; }
+        .nutrient-col { display: none; }
         .max-weight { padding: 2px 4px; }
     </style>
 </head>
 <body>
     <label><input type="checkbox" id="toggle-db"> Показать ДБ</label>
     <label><input type="checkbox" id="toggle-nutrients"> Показать КБЖУ+</label>
-    <div id="db"></div>
+    <table id="db">
+        <thead>
+            <tr>
+                <th>Выбрать</th>
+                <th>Продукт</th>
+                <th class="nutrient-col">Белки</th>
+                <th class="nutrient-col">Насыщенные</th>
+                <th class="nutrient-col">НЕнасыщенные</th>
+                <th class="nutrient-col">Простые</th>
+                <th class="nutrient-col">Сложные</th>
+                <th class="nutrient-col">Растворимая</th>
+                <th class="nutrient-col">Нерастворимая</th>
+                <th class="nutrient-col">ККал</th>
+                <th>Макс. порций</th>
+                <th>Шаг</th>
+            </tr>
+        </thead>
+        <tbody></tbody>
+    </table>
     <h2>Мой пул</h2>
-    <ul id="pool"></ul>
+    <table id="pool">
+        <thead>
+            <tr>
+                <th>Продукт</th>
+                <th class="nutrient-col">Белки</th>
+                <th class="nutrient-col">Насыщенные</th>
+                <th class="nutrient-col">НЕнасыщенные</th>
+                <th class="nutrient-col">Простые</th>
+                <th class="nutrient-col">Сложные</th>
+                <th class="nutrient-col">Растворимая</th>
+                <th class="nutrient-col">Нерастворимая</th>
+                <th class="nutrient-col">ККал</th>
+                <th>Макс. порций</th>
+                <th>Шаг</th>
+                <th>Допустимый вес Max.</th>
+                <th>фикс. вес</th>
+                <th>На оптимизацию</th>
+            </tr>
+        </thead>
+        <tbody></tbody>
+    </table>
 
     <script>
-        const dbDiv = document.getElementById('db');
-        const poolUl = document.getElementById('pool');
+        const dbTable = document.getElementById('db');
+        const dbBody = dbTable.querySelector('tbody');
+        const poolTable = document.getElementById('pool');
+        const poolBody = poolTable.querySelector('tbody');
         const products = {};
         const optimizationList = new Set();
 
+        function updateNutrientVisibility() {
+            const show = document.getElementById('toggle-nutrients').checked;
+            document.querySelectorAll('.nutrient-col').forEach(cell => {
+                cell.style.display = show ? 'table-cell' : 'none';
+            });
+        }
+
         document.getElementById('toggle-db').addEventListener('change', function() {
-            dbDiv.style.display = this.checked ? 'block' : 'none';
+            dbTable.style.display = this.checked ? 'table' : 'none';
         });
 
         function addToPool(name) {
-            const existing = document.querySelector('#pool li[data-name="' + name + '"]');
+            const existing = document.querySelector('#pool tbody tr[data-name="' + name + '"]');
             if (!existing) {
                 const data = products[name] || {};
-                const li = document.createElement('li');
-                li.setAttribute('data-name', name);
-                li.innerHTML = `
-                    <span class="product-name">${name}</span>
-                    <label> Макс. порций: <input type="number" class="max-portions" min="0" step="1" value="${data.defaultMax || 0}"></label>
-                    <label> Шаг: <input type="number" class="step" min="0" step="0.1" value="${data.defaultStep || 0}"></label>
-                    <span class="max-weight">Допустимый вес Max.: <span class="weight-value">0</span></span>
-                    <label><input type="checkbox" class="fix-weight"> фиксировать вес</label>
-                    <label><input type="checkbox" class="optimize"> На оптимизацию</label>
+                const tr = document.createElement('tr');
+                tr.setAttribute('data-name', name);
+                tr.innerHTML = `
+                    <td>${name}</td>
+                    <td class="nutrient-col">${data.proteins}</td>
+                    <td class="nutrient-col">${data.saturated}</td>
+                    <td class="nutrient-col">${data.unsaturated}</td>
+                    <td class="nutrient-col">${data.simple}</td>
+                    <td class="nutrient-col">${data.complex}</td>
+                    <td class="nutrient-col">${data.soluble}</td>
+                    <td class="nutrient-col">${data.insoluble}</td>
+                    <td class="nutrient-col">${data.kcal}</td>
+                    <td><input type="number" class="max-portions" min="0" step="1" value="${data.defaultMax || 0}"></td>
+                    <td><input type="number" class="step" min="0" step="0.1" value="${data.defaultStep || 0}"></td>
+                    <td class="max-weight"><span class="weight-value">0</span></td>
+                    <td><input type="checkbox" class="fix-weight"></td>
+                    <td><input type="checkbox" class="optimize"></td>
                 `;
-                poolUl.appendChild(li);
+                poolBody.appendChild(tr);
+                updateNutrientVisibility();
 
-                const maxPortionsInput = li.querySelector('.max-portions');
-                const stepInput = li.querySelector('.step');
-                const weightValue = li.querySelector('.weight-value');
-                const fixCheckbox = li.querySelector('.fix-weight');
-                const maxWeightSpan = li.querySelector('.max-weight');
-                const optimizeCheckbox = li.querySelector('.optimize');
+                const maxPortionsInput = tr.querySelector('.max-portions');
+                const stepInput = tr.querySelector('.step');
+                const weightValue = tr.querySelector('.weight-value');
+                const fixCheckbox = tr.querySelector('.fix-weight');
+                const maxWeightCell = tr.querySelector('.max-weight');
+                const optimizeCheckbox = tr.querySelector('.optimize');
 
                 function updateWeight() {
                     const maxPortions = parseFloat(maxPortionsInput.value) || 0;
@@ -63,7 +119,7 @@
                 updateWeight();
 
                 fixCheckbox.addEventListener('change', function() {
-                    maxWeightSpan.style.backgroundColor = this.checked ? '#ffb6c1' : '';
+                    maxWeightCell.style.backgroundColor = this.checked ? '#ffb6c1' : '';
                 });
 
                 optimizeCheckbox.addEventListener('change', function() {
@@ -77,9 +133,9 @@
         }
 
         function removeFromPool(name) {
-            const li = document.querySelector('#pool li[data-name="' + name + '"]');
-            if (li) {
-                li.remove();
+            const tr = document.querySelector('#pool tbody tr[data-name="' + name + '"]');
+            if (tr) {
+                tr.remove();
             }
             optimizationList.delete(name);
         }
@@ -106,9 +162,25 @@
                         defaultStep: parseFloat(cols[10])
                     };
 
-                    const label = document.createElement('label');
-                    const checkbox = document.createElement('input');
-                    checkbox.type = 'checkbox';
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td><input type="checkbox" class="select-product"></td>
+                        <td>${name}</td>
+                        <td class="nutrient-col">${cols[1]}</td>
+                        <td class="nutrient-col">${cols[2]}</td>
+                        <td class="nutrient-col">${cols[3]}</td>
+                        <td class="nutrient-col">${cols[4]}</td>
+                        <td class="nutrient-col">${cols[5]}</td>
+                        <td class="nutrient-col">${cols[6]}</td>
+                        <td class="nutrient-col">${cols[7]}</td>
+                        <td class="nutrient-col">${cols[8]}</td>
+                        <td>${cols[9]}</td>
+                        <td>${cols[10]}</td>
+                    `;
+                    dbBody.appendChild(tr);
+                    updateNutrientVisibility();
+
+                    const checkbox = tr.querySelector('.select-product');
                     checkbox.addEventListener('change', function() {
                         if (this.checked) {
                             addToPool(name);
@@ -116,21 +188,10 @@
                             removeFromPool(name);
                         }
                     });
-                    const nutrientSpan = document.createElement('span');
-                    nutrientSpan.className = 'nutrients';
-                    nutrientSpan.textContent = ` Б:${cols[1]} Жн:${cols[2]} Жнн:${cols[3]} Пр:${cols[4]} Сл:${cols[5]} Раств:${cols[6]} Нер:${cols[7]} ККал:${cols[8]}`;
-                    label.appendChild(checkbox);
-                    label.appendChild(document.createTextNode(' ' + name));
-                    label.appendChild(nutrientSpan);
-                    dbDiv.appendChild(label);
                 });
             });
 
-        document.getElementById('toggle-nutrients').addEventListener('change', function() {
-            document.querySelectorAll('.nutrients').forEach(span => {
-                span.style.display = this.checked ? 'inline' : 'none';
-            });
-        });
+        document.getElementById('toggle-nutrients').addEventListener('change', updateNutrientVisibility);
     </script>
 </body>
 </html>
