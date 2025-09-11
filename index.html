@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Продукты</title>
+    <style>
+        #db { display: none; margin-top: 10px; }
+        #pool { margin-top: 10px; }
+        label { display: block; }
+    </style>
+</head>
+<body>
+    <label><input type="checkbox" id="toggle-db"> Показать ДБ</label>
+    <div id="db"></div>
+    <h2>Мой пул</h2>
+    <ul id="pool"></ul>
+
+    <script>
+        const dbDiv = document.getElementById('db');
+        const poolUl = document.getElementById('pool');
+
+        document.getElementById('toggle-db').addEventListener('change', function() {
+            dbDiv.style.display = this.checked ? 'block' : 'none';
+        });
+
+        function addToPool(name) {
+            const existing = document.querySelector('#pool li[data-name="' + name + '"]');
+            if (!existing) {
+                const li = document.createElement('li');
+                li.textContent = name;
+                li.setAttribute('data-name', name);
+                poolUl.appendChild(li);
+            }
+        }
+
+        function removeFromPool(name) {
+            const li = document.querySelector('#pool li[data-name="' + name + '"]');
+            if (li) {
+                li.remove();
+            }
+        }
+
+        fetch('Nutrients%20DB.csv')
+            .then(response => response.text())
+            .then(text => {
+                const lines = text.trim().split(/\r?\n/);
+                lines.splice(0, 2); // remove header lines
+                lines.forEach(line => {
+                    if (!line) return;
+                    const cols = line.split(',');
+                    const name = cols[0];
+                    const label = document.createElement('label');
+                    const checkbox = document.createElement('input');
+                    checkbox.type = 'checkbox';
+                    checkbox.addEventListener('change', function() {
+                        if (this.checked) {
+                            addToPool(name);
+                        } else {
+                            removeFromPool(name);
+                        }
+                    });
+                    label.appendChild(checkbox);
+                    label.appendChild(document.createTextNode(' ' + name));
+                    dbDiv.appendChild(label);
+                });
+            });
+    </script>
+</body>
+</html>
